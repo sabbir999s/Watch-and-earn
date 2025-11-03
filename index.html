@@ -386,6 +386,7 @@
         
         // Function to safely get Telegram User Data
         function getTelegramUserData() {
+            // এই ফাংশনটি Telegram Mini App SDK থেকে ইউজারের তথ্য আনবে
             const isTelegram = typeof window.Telegram !== 'undefined' && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe;
             
             if (isTelegram && window.Telegram.WebApp.initDataUnsafe.user) {
@@ -395,7 +396,8 @@
                     firstName: tgUser.first_name || "Telegram",
                     lastName: tgUser.last_name || "",
                     username: tgUser.username || null,
-                    photoUrl: tgUser.photo_url || null, // photo_url is provided by Telegram Mini App
+                    // photo_url টেলিগ্রাম মিনি অ্যাপ SDK থেকে পাওয়া যায়
+                    photoUrl: tgUser.photo_url || null, 
                 };
             }
             
@@ -444,35 +446,50 @@
              if (!currentUser) return;
             // First, check if user exists in Firestore based on the Telegram ID
             const userRef = doc(db, "users", currentUser.uid);
+            const tgUser = getTelegramUserData(); // টেলিগ্রাম ডেটা আবার লোড করা
+            
             try {
                 const userSnap = await getDoc(userRef);
                 if (userSnap.exists()) {
                     userData = userSnap.data();
                     
                     // NEW: Force update name/photo/username in Firestore with latest Telegram data if needed
-                    const tgUser = getTelegramUserData();
                     const currentFullName = `${tgUser.firstName} ${tgUser.lastName}`.trim();
-                    if (userData.name !== currentFullName || userData.username !== tgUser.username || userData.photoUrl !== tgUser.photoUrl) {
-                        const updateData = {
-                            name: currentFullName,
-                            username: tgUser.username,
-                            photoUrl: tgUser.photoUrl,
-                            // Only update if null or different
-                            email: userData.email || null // Keep existing email if set by user
-                        };
+                    const updateData = {};
+                    let shouldUpdate = false;
+
+                    if (userData.name !== currentFullName) {
+                        updateData.name = currentFullName;
+                        shouldUpdate = true;
+                    }
+                    if (userData.username !== tgUser.username) {
+                        updateData.username = tgUser.username;
+                        shouldUpdate = true;
+                    }
+                    // Photo URL শুধুমাত্র তখনই আপডেট করা হবে যখন এটি null বা ভিন্ন হবে
+                    if (userData.photoUrl !== tgUser.photoUrl) {
+                        updateData.photoUrl = tgUser.photoUrl || "https://placehold.co/100x100/1e1e1e/ff8c00?text=TG";
+                        shouldUpdate = true;
+                    }
+                    // Keep existing email if set by user
+                    updateData.email = userData.email || null; 
+
+                    if (shouldUpdate) {
                         await updateDoc(userRef, updateData);
-                        userData = { ...userData, ...updateData }; // Update local data
+                        userData = { ...userData, ...updateData }; // Local data আপডেট করা
                     }
                     
                 } else {
                     // Create new user profile using Telegram data
-                    const tgUser = getTelegramUserData();
                     const ownReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
                     const defaultUserData = {
                         uid: currentUser.uid,
+                        // টেলিগ্রামের নাম ব্যবহার করা
                         name: `${tgUser.firstName} ${tgUser.lastName}`.trim() || "Telegram User",
-                        username: tgUser.username || null, // Use actual Telegram username
+                        // টেলিগ্রামের ইউজারনেম ব্যবহার করা
+                        username: tgUser.username || null, 
                         email: null, // Email is optional, can be set later
+                        // টেলিগ্রামের প্রোফাইল পিকচার ব্যবহার করা
                         photoUrl: tgUser.photoUrl || "https://placehold.co/100x100/1e1e1e/ff8c00?text=TG",
                         balance: 50,
                         referralCode: ownReferralCode,
@@ -568,7 +585,8 @@
             coinBalanceEl.textContent = balance;
             walletCoinBalanceEl.textContent = balance;
             
-            // NEW: Update Profile with Telegram details
+            // NEW: Update Profile with Telegram details (Firebase data already updated with latest TG info)
+            // Firebase-এ সেভ হওয়া ডেটা ব্যবহার করে প্রোফাইল আপডেট করা
             profileNameEl.textContent = userData.name || 'Telegram User';
             profileUsernameEl.textContent = userData.username ? `@${userData.username}` : 'No Username';
             
