@@ -286,10 +286,11 @@
             <div id="profile-page" class="p-4 space-y-6 sub-page">
                 <h2 class="text-xl font-bold text-center mb-4">Profile</h2>
                 <div class="flex flex-col items-center">
-                    <img id="profile-picture" src="https://placehold.co/100x100/1e1e1e/ff8c00?text=U" class="rounded-full mb-2 w-24 h-24 object-cover">
+                    <img id="profile-picture" src="https://placehold.co/100x100/1e1e1e/ff8c00?text=U" class="rounded-full mb-2 w-24 h-24 object-cover border-4 border-accent">
                     <h2 id="profile-name" class="text-xl font-bold">User Name</h2>
                     <p id="profile-username" class="text-gray-400 mb-4">@username</p>
-                    <p id="profile-email" class="text-gray-400 hidden">user@email.com</p> </div>
+                    <p id="profile-email" class="text-gray-400 hidden">user@email.com</p> 
+                </div>
 
                 <div class="card-bg p-4 rounded-lg space-y-3">
                     <h3 class="font-semibold">Update Email</h3>
@@ -299,7 +300,6 @@
                 
                 <button id="logout-btn" class="w-full mt-6 p-3 rounded-lg bg-red-600 text-white font-bold">Logout</button>
             </div>
-
             <div id="notifications-page" class="p-4 space-y-4 sub-page">
                 <h2 class="text-xl font-bold text-center">Notifications</h2>
                 <div id="notifications-list" class="space-y-3"></div>
@@ -378,35 +378,54 @@
         window.onload = () => {
             lucide.createIcons();
             setupEventListeners();
-            // NEW: Instead of showing auth-section, we assume Telegram login is successful/handled
-            // We directly proceed to check auth state (which will likely be null on a regular browser but will simulate Telegram login)
-            // showMainPage('auth-section'); // Removed
-            // loader.style.display = 'none'; // Will be handled inside handleAuthStateChange
-            // onAuthStateChanged(auth, handleAuthStateChange); // Keep the Firebase flow but adapt the user object for Telegram login
-            
             // NEW: Simplified initial load to simulate Telegram login
             simulateTelegramLogin();
         };
         
+        // --- প্রোফাইল সেকশনের জন্য প্রয়োজনীয় পরিবর্তন শুরু ---
+        
+        // Function to safely get Telegram User Data
+        function getTelegramUserData() {
+            const isTelegram = typeof window.Telegram !== 'undefined' && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe;
+            
+            if (isTelegram && window.Telegram.WebApp.initDataUnsafe.user) {
+                const tgUser = window.Telegram.WebApp.initDataUnsafe.user;
+                return {
+                    id: tgUser.id.toString(),
+                    firstName: tgUser.first_name || "Telegram",
+                    lastName: tgUser.last_name || "",
+                    username: tgUser.username || null,
+                    photoUrl: tgUser.photo_url || null, // photo_url is provided by Telegram Mini App
+                };
+            }
+            
+            // Fallback for non-Telegram environment (like a local test)
+            return {
+                id: "MOCK_TG_USER_12345",
+                firstName: "Telegram",
+                lastName: "User",
+                username: "testuser",
+                photoUrl: "https://placehold.co/100x100/1e1e1e/ff8c00?text=TG",
+            };
+        }
+        
         // NEW: Function to simulate Telegram Mini App user data and auto-login
         async function simulateTelegramLogin() {
              loader.style.display = 'flex';
-            // Placeholder for getting Telegram User Data from Telegram WebApp SDK
-            // let tgUser = window.Telegram.WebApp.initDataUnsafe.user; 
             
-            // Fallback for non-Telegram environment (like a local test)
-            const isTelegram = typeof window.Telegram !== 'undefined' && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe;
+            const tgUser = getTelegramUserData();
 
-            const tgUserId = isTelegram ? window.Telegram.WebApp.initDataUnsafe.user.id.toString() : "MOCK_TG_USER_12345";
-            const tgFirstName = isTelegram ? window.Telegram.WebApp.initDataUnsafe.user.first_name : "Telegram";
-            const tgUsername = isTelegram ? window.Telegram.WebApp.initDataUnsafe.user.username : "testuser";
-            const tgPhotoUrl = isTelegram ? window.Telegram.WebApp.initDataUnsafe.user.photo_url : "https://placehold.co/100x100/1e1e1e/ff8c00?text=TG";
+            const tgUserId = tgUser.id;
+            const tgFirstName = tgUser.firstName;
+            const tgLastName = tgUser.lastName;
+            const tgUsername = tgUser.username;
+            const tgPhotoUrl = tgUser.photoUrl;
 
             // Since we are skipping Firebase Auth Login, we need a Mock User to interact with Firestore
             // This is a common pattern for Telegram/Custom Auth where the TG ID is the UID
             const mockUser = {
                 uid: tgUserId,
-                displayName: tgFirstName,
+                displayName: `${tgFirstName} ${tgLastName}`.trim(),
                 email: tgUsername ? `${tgUsername}@telegram.me` : `user_${tgUserId}@telegram.me`,
                 photoURL: tgPhotoUrl
             };
@@ -429,15 +448,32 @@
                 const userSnap = await getDoc(userRef);
                 if (userSnap.exists()) {
                     userData = userSnap.data();
+                    
+                    // NEW: Force update name/photo/username in Firestore with latest Telegram data if needed
+                    const tgUser = getTelegramUserData();
+                    const currentFullName = `${tgUser.firstName} ${tgUser.lastName}`.trim();
+                    if (userData.name !== currentFullName || userData.username !== tgUser.username || userData.photoUrl !== tgUser.photoUrl) {
+                        const updateData = {
+                            name: currentFullName,
+                            username: tgUser.username,
+                            photoUrl: tgUser.photoUrl,
+                            // Only update if null or different
+                            email: userData.email || null // Keep existing email if set by user
+                        };
+                        await updateDoc(userRef, updateData);
+                        userData = { ...userData, ...updateData }; // Update local data
+                    }
+                    
                 } else {
                     // Create new user profile using Telegram data
+                    const tgUser = getTelegramUserData();
                     const ownReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
                     const defaultUserData = {
                         uid: currentUser.uid,
-                        name: currentUser.displayName || "Telegram User",
-                        username: currentUser.email.split('@')[0], // Using part of mock email as username
+                        name: `${tgUser.firstName} ${tgUser.lastName}`.trim() || "Telegram User",
+                        username: tgUser.username || null, // Use actual Telegram username
                         email: null, // Email is optional, can be set later
-                        photoUrl: currentUser.photoURL || "https://placehold.co/100x100/1e1e1e/ff8c00?text=TG",
+                        photoUrl: tgUser.photoUrl || "https://placehold.co/100x100/1e1e1e/ff8c00?text=TG",
                         balance: 50,
                         referralCode: ownReferralCode,
                         referredBy: null,
@@ -471,6 +507,9 @@
             showMainPage('app-container');
             navigateTo('home-page');
         }
+
+        // --- প্রোফাইল সেকশনের জন্য প্রয়োজনীয় পরিবর্তন শেষ ---
+
 
         // NEW: Get user location and set default country
         async function checkAndSetLocation() {
@@ -532,6 +571,8 @@
             // NEW: Update Profile with Telegram details
             profileNameEl.textContent = userData.name || 'Telegram User';
             profileUsernameEl.textContent = userData.username ? `@${userData.username}` : 'No Username';
+            
+            // Use the photoUrl from userData (which is fetched from Telegram initDataUnsafe)
             profilePictureEl.src = userData.photoUrl || 'https://placehold.co/100x100/1e1e1e/ff8c00?text=TG';
             
             // profileEmailEl is still here but usually hidden, showing only if it exists
@@ -1010,4 +1051,4 @@
     </script>
 </body>
 
-</html>)
+</html>
