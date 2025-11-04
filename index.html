@@ -12,6 +12,9 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
+    <script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
+    
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -160,10 +163,82 @@
                 opacity: 1;
             }
         }
+        
+        /* NEW CSS for Ban and Suspend Overlays */
+        .full-overlay {
+            position: fixed;
+            inset: 0;
+            background-color: #121212;
+            z-index: 1000;
+            display: none; /* Initially hidden */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 1.5rem;
+        }
+
+        .overlay-content-box {
+            background-color: #1e1e1e;
+            padding: 2rem;
+            border-radius: 1rem;
+            max-width: 90%;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+            border: 2px solid #ff8c00;
+        }
+
+        .timer {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #ef4444;
+            margin: 1rem 0;
+            letter-spacing: 2px;
+        }
+
+        .ban-icon {
+            color: #ef4444;
+            margin-bottom: 1rem;
+        }
+
+        .suspend-icon {
+            color: #ff8c00;
+            margin-bottom: 1rem;
+        }
+        /* NEW CSS: Referral Warning */
+        .referral-warning-box {
+            background-color: #6d0000; /* Darker red background */
+            border: 1px solid #ff4444;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            text-align: center;
+            font-weight: bold;
+            color: #ffcccc;
+            margin-bottom: 1rem;
+        }
     </style>
 </head>
 
 <body class="max-w-md mx-auto">
+    
+    <div id="ban-overlay" class="full-overlay">
+        <div class="overlay-content-box">
+            <i data-lucide="shield-off" class="w-16 h-16 ban-icon"></i>
+            <h2 class="text-3xl font-bold text-red-500 mb-4">Account Banned</h2>
+            <p class="text-lg text-gray-300 mb-6">Your account has been permanently banned due to a violation of our terms of service.</p>
+            <p class="text-sm text-gray-400">Please contact **customer service and admin** for further assistance.</p>
+        </div>
+    </div>
+    
+    <div id="suspend-overlay" class="full-overlay">
+        <div class="overlay-content-box">
+            <i data-lucide="clock" class="w-16 h-16 suspend-icon"></i>
+            <h2 class="text-3xl font-bold text-accent mb-4">Account Suspended</h2>
+            <p class="text-lg text-gray-300 mb-2">Your account is temporarily suspended.</p>
+            <p class="text-sm text-gray-400 mb-4">Remaining suspension time:</p>
+            <div id="suspend-timer" class="timer">--:--:--</div>
+            <p class="text-sm text-gray-400">Your current coin balance has been frozen.</p>
+        </div>
+    </div>
 
     <div id="loader" class="hidden fixed inset-0 dark-bg bg-opacity-75 flex items-center justify-center z-50">
         <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-accent"></div>
@@ -228,15 +303,10 @@
                             </div>
                             <button class="bg-white text-orange-500 font-bold px-6 py-2 rounded-lg text-sm btn" onclick="claimReward('interstitial')">Claim</button>
                         </div>
-                        <div class="card-bg p-3 rounded-lg flex items-center justify-between">
-                            <div class="flex items-center space-x-3"><span class="text-3xl">😎</span>
-                                <div>
-                                    <h3 class="font-semibold">Click for Reward</h3>
-                                    <p class="text-xs text-gray-400">Rewarded Popup</p>
-                                </div>
-                            </div>
-                            <button class="bg-white text-black font-bold px-6 py-2 rounded-lg text-sm btn" onclick="claimReward('popup')">Claim</button>
-                        </div>
+                        
+                        
+                        
+                        
                         <div class="card-bg p-3 rounded-lg flex items-center justify-between">
                             <div class="flex items-center space-x-3"><span class="text-3xl">👀</span>
                                 <div>
@@ -302,6 +372,9 @@
             <div id="refer-page" class="p-4 space-y-6 sub-page">
                 <h2 class="text-xl font-bold text-center">Refer & Earn</h2>
                 
+                <div id="referral-warning" class="referral-warning-box hidden">
+                     <p>⚠️ Detective Device: Your Refer Not Count</p>
+                </div>
                 <div class="card-bg p-4 rounded-lg text-center">
                     <p class="text-3xl font-bold text-accent" id="total-referrals">0</p>
                     <p class="text-sm text-gray-400">Total Referrals</p>
@@ -384,7 +457,10 @@
 
         import { initializeApp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js";
         import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, updateEmail } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, query, where, getDocs, orderBy, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, collection, addDoc, query, where, getDocs, orderBy, limit, serverTimestamp, onSnapshot } from "https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore.js";
+        // Import FingerprintJS library as FP
+        const FP = window.FingerprintJS;
+
 
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
@@ -393,6 +469,9 @@
         let currentUser = null;
         let userData = null;
         let appConfig = {};
+        
+        // NEW: Global variable for device fingerprint
+        let deviceFingerprint = null;
         
         const COUNTRY_CONFIG = {
             "Bangladesh": { code: "+880", methods: ["bKash", "Nagad", "Rocket"], default: true },
@@ -423,15 +502,48 @@
         const phoneErrorEl = document.getElementById('phone-error');
         const totalReferralsEl = document.getElementById('total-referrals');
         const referralHistoryList = document.getElementById('referral-history-list');
+        
+        // NEW: Suspend/Ban Overlay Elements
+        const banOverlay = document.getElementById('ban-overlay');
+        const suspendOverlay = document.getElementById('suspend-overlay');
+        const suspendTimerEl = document.getElementById('suspend-timer');
+        const appContainer = document.getElementById('app-container');
+        const referralWarningEl = document.getElementById('referral-warning'); // NEW
+        // NEW: End
 
         const WITHDRAW_AMOUNTS = [5000, 10000, 15000, 20000, 25000, 30000, 50000, 100000];
 
-        window.onload = () => {
+        window.onload = async () => {
             lucide.createIcons();
             setupEventListeners();
+            // NEW: Generate Device Fingerprint on load
+            await generateDeviceFingerprint(); 
+            // END NEW
             simulateTelegramLogin();
         };
         
+        // NEW: Device Fingerprinting Function
+        async function generateDeviceFingerprint() {
+             try {
+                // Ensure FingerprintJS is loaded
+                if (typeof FP !== 'undefined' && FP.load) {
+                    const fp = await FP.load();
+                    const result = await fp.get();
+                    // We need a stable, consistent identifier but must avoid network/IP based checks
+                    // The visitorId is generated from numerous browser/device properties (hardware, software, config)
+                    deviceFingerprint = result.visitorId;
+                    console.log("Device Fingerprint:", deviceFingerprint);
+                } else {
+                    console.error("FingerprintJS library not loaded.");
+                    deviceFingerprint = 'UNKNOWN_FP';
+                }
+            } catch (error) {
+                console.error("Error generating device fingerprint:", error);
+                deviceFingerprint = 'UNKNOWN_FP';
+            }
+        }
+        // END NEW
+
         function getTelegramUserData() {
             const isTelegram = typeof window.Telegram !== 'undefined' && window.Telegram.WebApp && window.Telegram.WebApp.initDataUnsafe;
             if (isTelegram && window.Telegram.WebApp.initDataUnsafe.user) {
@@ -465,69 +577,145 @@
             currentUser = mockUser;
             await initializeAppLogic();
             await checkAndSetLocation();
-            loader.style.display = 'none';
+            // loader.style.display = 'none'; // Moved to initializeAppLogic
         }
 
         async function initializeAppLogic() {
              if (!currentUser) return;
             const userRef = doc(db, "users", currentUser.uid);
-            try {
-                const userSnap = await getDoc(userRef);
-                if (userSnap.exists()) {
-                    userData = userSnap.data();
-                    const tgUser = getTelegramUserData();
-                    const currentFullName = `${tgUser.firstName} ${tgUser.lastName}`.trim();
-                    if (userData.name !== currentFullName || userData.username !== tgUser.username || userData.photoUrl !== tgUser.photoUrl) {
-                        const updateData = {
-                            name: currentFullName,
-                            username: tgUser.username,
-                            photoUrl: tgUser.photoUrl,
-                            email: userData.email || null
+            
+            // NEW: Real-time Listener for user data (especially for ban/suspend)
+            const unsubscribe = onSnapshot(userRef, async (userSnap) => {
+                try {
+                    if (userSnap.exists()) {
+                        userData = userSnap.data();
+                        
+                        // NEW: Device Status Check
+                        if (userData.deviceStatus === 'clean' && userData.deviceFingerprint !== deviceFingerprint) {
+                             // User logged in from a new device, check if other accounts exist on this device
+                             const q = query(collection(db, "users"), where("deviceFingerprint", "==", deviceFingerprint));
+                             const deviceSnap = await getDocs(q);
+                             if (deviceSnap.size > 0 && deviceFingerprint !== 'UNKNOWN_FP') { 
+                                 // Another account detected on this device, or same device with multiple accounts
+                                 await updateDoc(userRef, { deviceStatus: 'warning' });
+                                 userData.deviceStatus = 'warning';
+                             } else if (userData.deviceFingerprint === 'UNKNOWN_FP' && deviceFingerprint !== 'UNKNOWN_FP') {
+                                 // First time good fingerprint is obtained
+                                 await updateDoc(userRef, { deviceFingerprint: deviceFingerprint });
+                                 userData.deviceFingerprint = deviceFingerprint;
+                             }
+                        } else if (userData.deviceFingerprint === null && deviceFingerprint !== 'UNKNOWN_FP') {
+                             // First time login for a user without FP
+                              await updateDoc(userRef, { deviceFingerprint: deviceFingerprint, deviceStatus: 'clean' });
+                              userData.deviceFingerprint = deviceFingerprint;
+                              userData.deviceStatus = 'clean';
+                        }
+                        
+                        // NEW: Ban Check
+                        if (userData.isBanned) {
+                            showBanOverlay();
+                            // To prevent further processing and UI updates
+                            if (unsubscribe) unsubscribe(); 
+                            loader.style.display = 'none';
+                            return; 
+                        } else {
+                            banOverlay.style.display = 'none';
+                        }
+                        
+                        // NEW: Suspend Check
+                        if (userData.isSuspended && userData.suspendUntil) {
+                            const suspendEndTimestamp = userData.suspendUntil.seconds * 1000;
+                            const remainingDuration = Math.max(0, suspendEndTimestamp - Date.now());
+                            
+                            if (remainingDuration > 0) {
+                                showSuspendOverlay(remainingDuration / 1000);
+                                await fetchAppConfig(); 
+                                updateUI(); 
+                                return; // Stop showing main app
+                            } else {
+                                // Suspension period ended, un-suspend the user
+                                await updateDoc(userRef, { isSuspended: false, suspendUntil: null });
+                                userData.isSuspended = false;
+                                userData.suspendUntil = null;
+                                suspendOverlay.style.display = 'none';
+                            }
+                        } else {
+                             suspendOverlay.style.display = 'none';
+                        }
+                        // END NEW: Ban/Suspend Check
+                        
+                        // Existing logic to check/update Telegram data
+                        const tgUser = getTelegramUserData();
+                        const currentFullName = `${tgUser.firstName} ${tgUser.lastName}`.trim();
+                        if (userData.name !== currentFullName || userData.username !== tgUser.username || userData.photoUrl !== tgUser.photoUrl) {
+                            const updateData = {
+                                name: currentFullName,
+                                username: tgUser.username,
+                                photoUrl: tgUser.photoUrl,
+                                email: userData.email || null
+                            };
+                            await updateDoc(userRef, updateData);
+                            userData = { ...userData, ...updateData };
+                        }
+                        
+                        await fetchAppConfig();
+                        await checkNewNotifications();
+                        updateUI();
+                        showMainPage('app-container');
+                        navigateTo(document.querySelector('.sub-page.active')?.id || 'home-page');
+                        await loadReferralHistory(); 
+
+                    } else {
+                         // User does not exist, create new user
+                        const tgUser = getTelegramUserData();
+                        const ownReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+                        const defaultUserData = {
+                            uid: currentUser.uid,
+                            name: `${tgUser.firstName} ${tgUser.lastName}`.trim() || "Telegram User",
+                            username: tgUser.username || null,
+                            email: null,
+                            photoUrl: tgUser.photoUrl || "https://placehold.co/100x100/1e1e1e/ff8c00?text=TG",
+                            balance: 50,
+                            referralCode: ownReferralCode,
+                            referredBy: null,
+                            lastNotificationCheck: serverTimestamp(),
+                            createdAt: serverTimestamp(),
+                            dailyAdCount: 0,
+                            lastAdWatchDate: new Date().toISOString().split('T')[0],
+                            isBanned: false, // NEW
+                            isSuspended: false, // NEW
+                            suspendUntil: null, // NEW
+                            country: userLocation,
+                            deviceFingerprint: deviceFingerprint, // NEW
+                            deviceStatus: 'clean' // NEW: Default to clean
                         };
-                        await updateDoc(userRef, updateData);
-                        userData = { ...userData, ...updateData };
+                        
+                        // NEW: Device Check for New Signup
+                        const q = query(collection(db, "users"), where("deviceFingerprint", "==", deviceFingerprint));
+                        const deviceSnap = await getDocs(q);
+                        if (deviceSnap.size > 0 && deviceFingerprint !== 'UNKNOWN_FP') { 
+                            defaultUserData.deviceStatus = 'warning';
+                        }
+                        // END NEW
+
+                        await setDoc(userRef, defaultUserData);
+                        userData = defaultUserData;
+                        
+                        // Re-run the process for the new user
+                        initializeAppLogic();
                     }
-                } else {
-                    const tgUser = getTelegramUserData();
-                    const ownReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-                    const defaultUserData = {
-                        uid: currentUser.uid,
-                        name: `${tgUser.firstName} ${tgUser.lastName}`.trim() || "Telegram User",
-                        username: tgUser.username || null,
-                        email: null,
-                        photoUrl: tgUser.photoUrl || "https://placehold.co/100x100/1e1e1e/ff8c00?text=TG",
-                        balance: 50,
-                        referralCode: ownReferralCode,
-                        referredBy: null,
-                        lastNotificationCheck: serverTimestamp(),
-                        createdAt: serverTimestamp(),
-                        dailyAdCount: 0,
-                        lastAdWatchDate: new Date().toISOString().split('T')[0],
-                        isBlocked: false,
-                        country: userLocation
-                    };
-                    await setDoc(userRef, defaultUserData);
-                    userData = defaultUserData;
+                } catch (error) {
+                    console.error("Error in onSnapshot or logic:", error);
+                    showAlert("Error loading user data. Please try again.");
+                } finally {
+                     loader.style.display = 'none';
                 }
-            } catch (error) {
-                console.error("Error fetching/creating user data:", error);
-                showAlert("Error loading user data.");
-                return;
-            }
+            });
+            // END NEW: Real-time Listener
             
-            if (userData.isBlocked) {
-                showAlert("Your account has been blocked.");
-                currentUser = null;
-                userData = null;
-                return;
-            }
-            
-            await fetchAppConfig();
-            await checkNewNotifications();
-            updateUI();
-            showMainPage('app-container');
-            navigateTo('home-page');
-            await loadReferralHistory(); // NEW
+            // Initial checks after setting up listener
+            await fetchAppConfig(); 
+            await checkAndSetLocation();
         }
 
         async function checkAndSetLocation() {
@@ -555,9 +743,33 @@
 
         function updateUI() {
             if (!userData) return;
+            
+            // NEW: Hide main app if suspended or banned
+            if (userData.isBanned) {
+                appContainer.style.display = 'none';
+                return;
+            }
+            if (userData.isSuspended) {
+                appContainer.style.display = 'none';
+            } else {
+                appContainer.style.display = 'flex'; 
+            }
+            // NEW: End
+            
             const balance = userData.balance || 0;
             coinBalanceEl.textContent = balance;
             walletCoinBalanceEl.textContent = balance;
+            
+            // NEW: Freeze balance display if suspended
+            const isFrozen = userData.isSuspended || userData.isBanned;
+            if (isFrozen) {
+                 coinBalanceEl.textContent = 'FREEZED';
+                 walletCoinBalanceEl.textContent = 'FREEZED';
+            }
+            document.querySelectorAll('.btn').forEach(btn => btn.disabled = isFrozen);
+            document.querySelectorAll('.btn-accent').forEach(btn => btn.disabled = isFrozen);
+            document.getElementById('home-withdraw-btn').disabled = isFrozen;
+            // NEW: End
             
             profileNameEl.textContent = userData.name || 'Telegram User';
             profileUsernameEl.textContent = userData.username ? `@${userData.username}` : 'No Username';
@@ -579,6 +791,14 @@
             updateAdsLeftCount();
             updateDynamicPaymentFields(userData.country || userLocation);
             document.getElementById('update-email-input').value = userData.email || '';
+            
+            // NEW: Referral Warning Display
+            if (userData.deviceStatus === 'warning') {
+                referralWarningEl.classList.remove('hidden');
+            } else {
+                referralWarningEl.classList.add('hidden');
+            }
+            // END NEW
         }
         
         function setupCountrySelect() {
@@ -729,7 +949,21 @@
             try {
                 const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                 const userRef = doc(db, "users", userCredential.user.uid);
-                await updateDoc(userRef, { name: name });
+                
+                // NEW: Device Check for Manual Signup
+                let status = 'clean';
+                const q = query(collection(db, "users"), where("deviceFingerprint", "==", deviceFingerprint));
+                const deviceSnap = await getDocs(q);
+                if (deviceSnap.size > 0 && deviceFingerprint !== 'UNKNOWN_FP') { 
+                    status = 'warning';
+                }
+                // END NEW
+                
+                await setDoc(userRef, { 
+                    name: name,
+                    deviceFingerprint: deviceFingerprint, // NEW
+                    deviceStatus: status // NEW
+                }, { merge: true }); // Merge true to avoid overwriting default TG user data if uid's clash
             } catch (error) {
                 showAlert(error.message);
             } finally {
@@ -788,6 +1022,48 @@
                 listEl.innerHTML = '<p class="text-red-400">Error loading notifications.</p>';
             }
         }
+        
+        // NEW: Ban Overlay Function
+        function showBanOverlay() {
+            banOverlay.style.display = 'flex';
+            appContainer.style.display = 'none';
+        }
+
+        // NEW: Suspend Overlay Functions
+        let suspendTimerInterval = null;
+        function showSuspendOverlay(durationInSeconds) {
+            suspendOverlay.style.display = 'flex';
+            appContainer.style.display = 'none';
+            if (suspendTimerInterval) clearInterval(suspendTimerInterval);
+            updateSuspendTimer(durationInSeconds);
+            suspendTimerInterval = setInterval(() => updateSuspendTimer(durationInSeconds), 1000);
+        }
+
+        function updateSuspendTimer(durationInSeconds) {
+            let totalSeconds = Math.floor(durationInSeconds);
+            const now = Date.now();
+            // Use the suspendUntil timestamp for accurate countdown
+            const suspendEndTimestamp = userData.suspendUntil?.seconds * 1000 || now; // Handle case where suspendUntil might be missing
+            totalSeconds = Math.max(0, Math.floor((suspendEndTimestamp - now) / 1000));
+            
+            if (totalSeconds <= 0) {
+                clearInterval(suspendTimerInterval);
+                suspendTimerEl.textContent = '00:00:00';
+                // The onSnapshot listener handles the un-suspend and UI update
+                return;
+            }
+
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor((totalSeconds % 3600) / 60);
+            const seconds = totalSeconds % 60;
+
+            const formattedTime = [hours, minutes, seconds]
+                .map(unit => unit.toString().padStart(2, '0'))
+                .join(':');
+
+            suspendTimerEl.textContent = formattedTime;
+        }
+        // NEW: End Suspend Overlay Functions
 
         // NEW: Generate 12-digit Transaction ID
         function generateTransactionId() {
@@ -814,7 +1090,7 @@
                     const request = doc.data();
                     const status = request.status || 'pending';
                     let statusColor = 'text-yellow-400';
-                    if (status === 'paid') statusColor = 'text-green-400';
+                    if (status === 'approved') statusColor = 'text-green-400'; // Change paid to approved
                     else if (status === 'rejected') statusColor = 'text-red-400';
                     const date = request.requestedAt ? request.requestedAt.toDate().toLocaleDateString() : 'N/A';
                     const txId = request.transactionId || 'N/A';
@@ -830,6 +1106,9 @@
                             <p class="text-xs text-gray-400">Username: @${request.username || 'N/A'}</p>
                             <p class="text-xs text-gray-400">Payment: ${request.country} (${request.paymentDetail}) - ${request.method}</p>
                             <p class="text-xs text-gray-400">${date}</p>
+                            ${request.status === 'rejected' && request.rejectionReason 
+                            ? `<p class="text-xs text-red-500 font-semibold mt-1">Reason: ${request.rejectionReason}</p>`
+                            : ''}
                         </div>`;
                 });
             } catch (error) {
@@ -839,6 +1118,10 @@
         }
 
         async function handleApplyReferralCode() {
+            // NEW: Referral Check
+            if (userData.deviceStatus === 'warning') return showAlert("Referral is not allowed on a detective device.");
+            // END NEW
+            
             if (userData.referredBy) return showAlert("You have already used a referral code.");
             const codeInput = document.getElementById('enter-referral-code');
             const code = codeInput.value.trim().toUpperCase();
@@ -851,6 +1134,10 @@
         }
 
         async function applyReferralBonus(referrerCode, isManualApply = false) {
+             // NEW: Referral Check
+            if (userData.deviceStatus === 'warning') return; // Silent return if not manual apply
+            // END NEW
+            
             const usersRef = collection(db, "users");
             const q = query(usersRef, where("referralCode", "==", referrerCode));
             try {
@@ -859,7 +1146,13 @@
                     const referrerDoc = querySnapshot.docs[0];
                     const referrerRef = doc(db, "users", referrerDoc.id);
                     const referrerData = referrerDoc.data();
-                    await updateDoc(referrerRef, { balance: (referrerData.balance || 0) + 100 });
+                    
+                    // NEW: Referrer device check before giving bonus
+                    if(referrerData.deviceStatus !== 'warning') {
+                        await updateDoc(referrerRef, { balance: (referrerData.balance || 0) + 100 });
+                    }
+                    // END NEW
+
                     const newUserRef = doc(db, "users", currentUser.uid);
                     await updateDoc(newUserRef, { balance: (userData.balance || 0) + 100, referredBy: referrerCode });
                     userData.balance += 100;
@@ -877,12 +1170,17 @@
             if (!currentUser) return;
             const newBalance = (userData.balance || 0) + amount;
             const userRef = doc(db, "users", currentUser.uid);
+            // NEW: Use transaction to ensure safe balance update (not strictly needed for this simple case but good practice)
+            // For simplicity, sticking to updateDoc as in original code, but balance validation is key.
             await updateDoc(userRef, { balance: newBalance });
             userData.balance = newBalance;
             updateUI();
         }
 
         async function handleWithdrawal() {
+            if (userData.isSuspended) return showAlert("Withdrawal is disabled while your account is suspended."); // Suspend check
+            if (userData.isBanned) return showAlert("Withdrawal is disabled as your account is banned."); // Ban check
+            
             const amount = parseInt(document.getElementById('withdraw-amount-select').value);
             const country = document.getElementById('country-select').value;
             const method = document.getElementById('withdraw-method').value;
@@ -963,15 +1261,20 @@
                 snapshot.forEach(doc => {
                     const refUser = doc.data();
                     const date = refUser.createdAt ? refUser.createdAt.toDate().toLocaleDateString() : 'N/A';
+                    
+                    // NEW: Add Warning text if referral deviceStatus is 'warning'
+                    const deviceWarning = refUser.deviceStatus === 'warning' ? ' (Device Warning)' : '';
+                    
                     referralHistoryList.innerHTML += `
                         <div class="referral-user">
                             <img src="${refUser.photoUrl || 'https://placehold.co/40x40/1e1e1e/ff8c00?text=U'}" alt="${refUser.name}">
                             <div class="flex-1">
-                                <p class="font-semibold">${refUser.name}</p>
+                                <p class="font-semibold">${refUser.name}${deviceWarning}</p>
                                 <p class="text-xs text-gray-400">@${refUser.username || 'N/A'}</p>
                             </div>
                             <p class="text-xs text-gray-400">${date}</p>
                         </div>`;
+                    // END NEW
                 });
             } catch (error) {
                 console.error("Error loading referrals:", error);
@@ -980,6 +1283,9 @@
         }
 
         window.claimReward = async function(taskType) {
+            if (userData.isSuspended) return showAlert("Tasks are disabled while your account is suspended."); // Suspend check
+             if (userData.isBanned) return showAlert("Tasks are disabled as your account is banned."); // Ban check
+            
             const today = new Date().toISOString().split('T')[0];
             const userRef = doc(db, "users", currentUser.uid);
 
@@ -999,6 +1305,10 @@
 
             let adPromise;
             loader.style.display = 'flex';
+            
+            // NEW L: Flag to check if the ad was successfully displayed/resolved
+            let adSuccessful = false; 
+
             try {
                 switch (taskType) {
                     case 'interstitial': adPromise = window.show_10132393(); break;
@@ -1009,25 +1319,35 @@
                 }
 
                 await adPromise;
+                
+                // NEW L: If adPromise resolves successfully, set flag
+                adSuccessful = true; 
 
-                const newCount = (userData.dailyAdCount || 0) + 1;
-                await updateDoc(userRef, { dailyAdCount: newCount });
-                userData.dailyAdCount = newCount;
-
-                let rewardAmount = (taskType === 'miniApp') ? 100 : (taskType !== 'inApp') ? 50 : 0;
-                if (rewardAmount > 0) {
-                    await updateBalance(rewardAmount);
-                    showAlert(`Congratulations! You have won ${rewardAmount} coins.`);
+                if(adSuccessful) {
+                    const newCount = (userData.dailyAdCount || 0) + 1;
+                    await updateDoc(userRef, { dailyAdCount: newCount });
+                    userData.dailyAdCount = newCount;
+    
+                    let rewardAmount = (taskType === 'miniApp') ? 50 : (taskType !== 'inApp') ? 50 : 0;
+                    if (rewardAmount > 0) {
+                        await updateBalance(rewardAmount);
+                        showAlert(`Congratulations! You have won ${rewardAmount} coins.`);
+                    }
                 }
-                updateAdsLeftCount();
+                
+                // Existing logic moved to finally block or removed based on new logic needs
 
             } catch (e) {
-                console.error("Ad error:", e);
-                showAlert('Could not show ad. Please try again later.');
+                console.error("Ad error (Ad did not show/load successfully):", e);
+                // NEW L: The adSuccessful flag remains false, so limit deduction is skipped.
+                showAlert('Could not show ad. Please try again later. Your limit was not deducted.');
             } finally {
+                updateAdsLeftCount(); // NEW L: Update the count display after attempt (whether successful or failed)
                 loader.style.display = 'none';
             }
         }
+        // NEW L: End of modified claimReward function - Overwrites previous implementation
+
 
         function showAlert(message) {
             document.getElementById('alert-message').textContent = message;
@@ -1041,4 +1361,3 @@
 </body>
 
 </html>
-
